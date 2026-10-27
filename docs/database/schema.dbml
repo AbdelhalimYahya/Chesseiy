@@ -1,0 +1,198 @@
+Enum user_role {
+  user
+  moderator
+  admin
+}
+
+Enum user_status {
+  active
+  muted
+  banned
+  deleted
+}
+
+Enum time_control {
+  bullet
+  blitz
+  rapid
+  classical
+}
+
+Enum game_status {
+  created
+  active
+  ended
+}
+
+Enum game_result {
+  white
+  black
+  draw
+}
+
+Enum game_termination {
+  checkmate
+  resignation
+  timeout
+  stalemate
+  draw_agreed
+  threefold_repetition
+  fifty_move_rule
+  insufficient_material
+  abandoned
+  aborted
+}
+
+Enum game_event_type {
+  draw_offer
+  draw_decline
+  takeback_offer
+  disconnect
+  reconnect
+}
+
+Table users {
+  id uuid [pk]
+  email varchar [unique, note: 'null for guests']
+  username varchar [unique, not null]
+  password_hash varchar [note: 'null for Google or guest accounts']
+  role user_role [not null, default: 'user']
+  status user_status [not null, default: 'active']
+  is_guest boolean [not null, default: false]
+  email_verified_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table profiles {
+  user_id uuid [pk]
+  display_name varchar
+  avatar_url varchar
+  country varchar [note: 'ISO code, e.g. EG']
+  bio text
+  language varchar [default: 'en', note: 'en or ar']
+  time_zone varchar [default: 'UTC', note: 'IANA, e.g. Africa/Cairo']
+  hide_rating boolean [not null, default: false]
+  privacy_settings jsonb
+  preferences jsonb
+}
+
+Table refresh_tokens {
+  id uuid [pk]
+  user_id uuid [not null]
+  family_id uuid [not null, note: 'same family = same login chain']
+  token_hash varchar [not null]
+  expires_at timestamp [not null]
+  revoked_at timestamp
+  user_agent varchar
+  ip varchar
+  created_at timestamp [not null]
+
+  indexes {
+    user_id
+    token_hash
+  }
+}
+
+Table oauth_accounts {
+  id uuid [pk]
+  user_id uuid [not null]
+  provider varchar [not null, note: 'google']
+  provider_user_id varchar [not null]
+
+  indexes {
+    (provider, provider_user_id) [unique]
+  }
+}
+
+Table ratings {
+  user_id uuid [not null]
+  time_control time_control [not null]
+  rating float [not null, default: 1500]
+  deviation float [not null, default: 350]
+  volatility float [not null, default: 0.06]
+  games_count int [not null, default: 0]
+  placement_games_left int [not null, default: 15]
+  updated_at timestamp [not null]
+
+  indexes {
+    (user_id, time_control) [pk]
+    (time_control, rating) [name: 'leaderboard_idx']
+  }
+}
+
+Table games {
+  id uuid [pk]
+  white_id uuid [not null]
+  black_id uuid [not null]
+  time_control time_control [not null]
+  initial_ms int [not null]
+  increment_ms int [not null]
+  rated boolean [not null, default: false]
+  status game_status [not null, default: 'created']
+  result game_result
+  termination game_termination
+  pgn text
+  final_fen varchar
+  opening_eco varchar
+  started_at timestamp
+  ended_at timestamp
+  created_at timestamp [not null]
+
+  indexes {
+    white_id
+    black_id
+    (status, started_at)
+  }
+}
+
+Table moves {
+  game_id uuid [not null]
+  ply int [not null, note: '1 = white first move, 2 = black first move']
+  san varchar [not null]
+  uci varchar [not null]
+  fen_after varchar [not null]
+  time_spent_ms int
+  clock_after_ms int
+
+  indexes {
+    (game_id, ply) [pk]
+  }
+}
+
+Table game_events {
+  id uuid [pk]
+  game_id uuid [not null]
+  type game_event_type [not null]
+  actor_id uuid
+  at timestamp [not null]
+
+  indexes {
+    game_id
+  }
+}
+
+Table rating_history {
+  id uuid [pk]
+  user_id uuid [not null]
+  time_control time_control [not null]
+  rating float [not null]
+  game_id uuid
+  created_at timestamp [not null]
+
+  indexes {
+    (user_id, time_control, created_at)
+  }
+}
+
+Ref: profiles.user_id - users.id [delete: cascade]
+Ref: refresh_tokens.user_id > users.id [delete: cascade]
+Ref: oauth_accounts.user_id > users.id [delete: cascade]
+Ref: ratings.user_id > users.id [delete: cascade]
+Ref: games.white_id > users.id
+Ref: games.black_id > users.id
+Ref: moves.game_id > games.id [delete: cascade]
+Ref: game_events.game_id > games.id [delete: cascade]
+Ref: game_events.actor_id > users.id
+Ref: rating_history.user_id > users.id [delete: cascade]
+Ref: rating_history.game_id > games.id
